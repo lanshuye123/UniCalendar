@@ -10,6 +10,8 @@
 - **OAuth 2.0 Provider**：作为认证中心，第三方应用可通过 OAuth Token 调用后端服务
 - **CalDAV**：完整 RFC 4791/5545 实现，支持 iOS/macOS/Thunderbird/DAVx5 原生同步
 - **MCP Server**：暴露日程管理工具给 Claude Desktop、Copilot 等 AI 客户端
+- **Legacy API**：完整保留旧版 Django API 路径，旧客户端无缝迁移
+- **DB 迁移**：提供从旧 Django SQLite 数据库的迁移脚本
 
 ## 技术栈
 
@@ -42,51 +44,39 @@ open http://localhost:8000/docs
 ```
 ├── app/
 │   ├── main.py              # FastAPI 入口，CalDAV 中间件
-│   ├── config.py            # 全局配置（密钥、过期时间等）
-│   ├── database.py          # SQLAlchemy async engine + session
-│   ├── dependencies.py      # 认证依赖注入（Bearer / OAuth Token）
+│   ├── config.py            # 全局配置
+│   ├── database.py          # SQLAlchemy async engine
+│   ├── dependencies.py      # 认证依赖 (Bearer + Token 双格式)
 │   │
 │   ├── core/
-│   │   ├── security.py      # bcrypt 密码哈希、JWT 签发/校验
-│   │   ├── rrule_engine.py  # 递归规则引擎（RRuleSegment / RRuleSeries）
-│   │   └── reminder_manager.py  # 提醒递归生命周期管理
+│   │   ├── security.py      # bcrypt + Django PBKDF2 双密码验证
+│   │   ├── rrule_engine.py  # 递归规则引擎
+│   │   └── reminder_manager.py
 │   │
-│   ├── models/
-│   │   ├── __init__.py      # User, UserData, EventGroup, ShareGroup 等
-│   │   └── oauth.py         # OAuthClient, OAuthToken, AuthorizationCode
+│   ├── models/              # ORM 模型
+│   ├── schemas/             # Pydantic 请求/响应
+│   ├── services/            # 业务逻辑 (7 services)
 │   │
-│   ├── schemas/__init__.py  # 全部 Pydantic 请求/响应模型
-│   │
-│   ├── services/            # 业务逻辑层
-│   │   ├── event_service.py         # 日程 CRUD + RRule 生成
-│   │   ├── todo_service.py          # 待办 CRUD + 转日程
-│   │   ├── reminder_service.py      # 提醒 CRUD + 递归
-│   │   ├── group_service.py         # 事件分组管理
-│   │   ├── share_group_service.py   # 分享组管理
-│   │   ├── calendar_feed_service.py # iCalendar Feed 生成
-│   │   └── oauth_service.py         # OAuth 令牌管理
-│   │
-│   ├── api/                 # RESTful API 路由
-│   │   ├── auth.py          # 注册、登录、密码重置
-│   │   ├── events.py        # 日程 CRUD + 批量编辑
-│   │   ├── todos.py         # 待办 CRUD + 转日程
-│   │   ├── reminders.py     # 提醒 CRUD + 批量编辑
-│   │   ├── event_groups.py  # 事件分组管理
-│   │   ├── share_groups.py  # 分享组管理
+│   ├── api/
+│   │   ├── auth.py          # 新版认证 (注册/登录/JWT)
+│   │   ├── events.py        # 新版日程 CRUD
+│   │   ├── todos.py         # 新版待办 CRUD
+│   │   ├── reminders.py     # 新版提醒 CRUD
+│   │   ├── event_groups.py  # 事件分组
+│   │   ├── share_groups.py  # 分享组
 │   │   ├── calendar_feed.py # iCalendar 订阅
-│   │   └── oauth.py         # OAuth 授权/令牌端点
+│   │   ├── oauth.py         # OAuth 2.0 Provider
+│   │   └── legacy.py        # 旧版 Django API 兼容层
 │   │
-│   └── caldav/              # CalDAV 协议实现
-│       ├── xml_utils.py     # WebDAV XML 构建
-│       ├── ical_builder.py  # iCalendar 对象构建
-│       ├── ical_parser.py   # iCalendar 文本解析
-│       ├── etag.py          # ETag / CTag 计算
-│       └── router.py        # PROPFIND / REPORT / GET / PUT / DELETE
+│   └── caldav/              # CalDAV 协议
 │
-├── mcp_server.py            # MCP Server 独立进程
+├── scripts/
+│   └── migrate.py           # 数据库迁移脚本
+├── mcp_server.py            # MCP Server
 ├── pyproject.toml
 ├── requirements.txt
-└── tests/
+├── tests/
+└── docs/
 ```
 
 ## REST API
@@ -391,3 +381,70 @@ python -m pytest tests/ -v
 ## License
 
 MIT
+
+## Legacy API 兼容 (v0)
+
+所有旧版 Django API 路径在 `/api/v0/` 前缀下完整保留，旧客户端无需修改代码。
+
+### 认证兼容
+
+| 旧格式 | 支持 |
+|--------|------|
+| `Authorization: Token <jwt>` | 兼容（JWT token 放入 Token header） |
+| `Authorization: Bearer <jwt>` | 兼容（新格式） |
+| POST `/api/auth/login/` (`{"username","password"}`) | 兼容（返回 `{"token":"..."}` 格式） |
+| GET `/api/auth/token/` | 兼容 |
+| POST `/api/auth/token/refresh/` | 兼容 |
+| POST `/api/auth/token/verify/` | 兼容 |
+
+### 密码验证
+
+支持两种格式：
+- **bcrypt** (新版注册) — `$2b$...`
+- **Django PBKDF2** (迁移用户) — `pbkdf2_sha256$iterations$salt$hash`
+
+迁移用户可直接用原密码登录。
+
+### 旧版 API 路径对照
+
+| 旧路径 | 新版 Legacy 路径 | 说明 |
+|--------|-----------------|------|
+| `POST /api/auth/login/` | `POST /api/v0/api/auth/login/` | Token 登录 |
+| `GET /api/calendar/feed/` | `GET /api/v0/api/calendar/feed/` | 日历订阅 |
+| `GET /get_calendar/events/` | `GET /api/v0/get_calendar/events/` | 获取日程 |
+| `POST /events/create_event/` | `POST /api/v0/events/create_event/` | 创建日程 |
+| `POST /get_calendar/update_events/` | `POST /api/v0/get_calendar/update_events/` | 批量更新 |
+| `GET /api/events/groups/` | `GET /api/v0/api/events/groups/` | 事件分组 |
+| `GET /api/reminders/` | `GET /api/v0/api/reminders/` | 获取提醒 |
+| `POST /api/reminders/create/` | `POST /api/v0/api/reminders/create/` | 创建提醒 |
+| `POST /api/reminders/update/` | `POST /api/v0/api/reminders/update/` | 更新提醒 |
+| `POST /api/reminders/delete/` | `POST /api/v0/api/reminders/delete/` | 删除提醒 |
+| `GET /api/todos/` | `GET /api/v0/api/todos/` | 获取待办 |
+| `POST /api/todos/create/` | `POST /api/v0/api/todos/create/` | 创建待办 |
+| `POST /api/share-groups/create/` | `POST /api/v0/api/share-groups/create/` | 创建分享组 |
+| `GET /api/share-groups/my-groups/` | `GET /api/v0/api/share-groups/my-groups/` | 我的分享组 |
+
+所有旧路径响应格式与原版一致。
+
+## 数据库迁移
+
+从旧 Django 项目迁移数据：
+
+```bash
+# 1. 将旧 db.sqlite3 放到任意位置
+# 2. 运行迁移
+python scripts/migrate.py /path/to/old/db.sqlite3
+
+# 3. 启动
+uvicorn app.main:app --reload
+```
+
+迁移内容：
+| 旧表 | 新表 |
+|------|------|
+| `auth_user` | `users` (密码原样保留，支持 Django PBKDF2) |
+| `core_userdata` | `user_data` (key-value JSON) |
+| `core_eventgroup` | `event_groups` |
+| `core_collaborativecalendargroup` | `share_groups` |
+| `core_groupmembership` | `group_memberships` |
+| `core_groupcalendardata` | `group_calendar_data` |

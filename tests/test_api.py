@@ -248,3 +248,91 @@ async def test_oauth_client_registration(client: AsyncClient):
     resp = await client.get("/api/oauth/clients", headers=headers)
     assert resp.status_code == 200
     assert resp.json()["count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_legacy_api_login(client: AsyncClient):
+    """Test old-style DRF token login endpoint."""
+    await client.post("/api/auth/register", json={
+        "username": "legacyuser", "email": "legacy@example.com", "password": "testpass123",
+    })
+
+    # Old-style login (username + password)
+    resp = await client.post("/api/v0/api/auth/login/", json={
+        "username": "legacyuser", "password": "testpass123",
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "token" in data
+    assert data["username"] == "legacyuser"
+
+
+@pytest.mark.asyncio
+async def test_legacy_token_header_auth(client: AsyncClient):
+    """Test that old 'Authorization: Token <jwt>' header works."""
+    await client.post("/api/auth/register", json={
+        "username": "tokenuser", "email": "token@example.com", "password": "testpass123",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "login": "tokenuser", "password": "testpass123",
+    })
+    token = login_resp.json()["access_token"]
+
+    # Old-style Token header
+    resp = await client.get("/api/auth/me", headers={"Authorization": f"Token {token}"})
+    assert resp.status_code == 200
+    assert resp.json()["username"] == "tokenuser"
+
+
+@pytest.mark.asyncio
+async def test_legacy_events_get(client: AsyncClient):
+    """Test old-style GET /get_calendar/events/ path."""
+    await client.post("/api/auth/register", json={
+        "username": "legaevt", "email": "legaevt@example.com", "password": "testpass123",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "login": "legaevt", "password": "testpass123",
+    })
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.get("/api/v0/get_calendar/events/", headers=headers)
+    assert resp.status_code == 200
+    assert "events" in resp.json()
+
+
+@pytest.mark.asyncio
+async def test_legacy_reminders_create(client: AsyncClient):
+    """Test old-style POST /api/reminders/create/ path."""
+    await client.post("/api/auth/register", json={
+        "username": "legarem", "email": "legarem@example.com", "password": "testpass123",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "login": "legarem", "password": "testpass123",
+    })
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.post("/api/v0/api/reminders/create/", json={
+        "title": "Legacy Reminder",
+        "trigger_time": "2026-06-01T10:00:00",
+    }, headers=headers)
+    assert resp.status_code == 200
+    assert resp.json()["reminder"]["title"] == "Legacy Reminder"
+
+
+@pytest.mark.asyncio
+async def test_legacy_todos_get(client: AsyncClient):
+    """Test old-style GET /api/todos/ path."""
+    await client.post("/api/auth/register", json={
+        "username": "legatodo", "email": "legatodo@example.com", "password": "testpass123",
+    })
+    login_resp = await client.post("/api/auth/login", json={
+        "login": "legatodo", "password": "testpass123",
+    })
+    token = login_resp.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    resp = await client.get("/api/v0/api/todos/", headers=headers)
+    assert resp.status_code == 200
+    assert "todos" in resp.json()
