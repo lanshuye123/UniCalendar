@@ -1,340 +1,393 @@
-﻿# UniSchedulerSuper - 智能日程管理系统
+# UniCalendar API
 
-[![Python Version](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![Django Version](https://img.shields.io/badge/django-5.1.8-green.svg)](https://www.djangoproject.com/)
-[![License](https://img.shields.io/badge/license-MIT-orange.svg)](LICENSE)
+后端日历服务 — RESTful API + OAuth 2.0 Provider + CalDAV + MCP Server
 
-基于 Django + LangGraph 的全功能 Web 日程管理系统，支持日程/提醒/待办管理、群组协作，并内置 AI Agent 对话助手。
+## 功能
 
----
-
-## 核心特性
-
-- **日程管理** — 单次与重复日程，完整 RRule（RFC 5545）支持（FREQ/INTERVAL/COUNT/UNTIL/BYDAY/EXDATE）
-- **提醒系统** — 多优先级、延迟提醒、重复提醒，与日程/待办双向关联
-- **待办事项** — 艾森豪威尔四象限法，支持依赖关系与预估时长
-- **群组协作** — 多人共享日程，版本号增量同步，三级权限管理
-- **AI Agent 助手** — LangGraph 驱动，WebSocket 实时对话，支持自然语言创建/查询日程、附件理解（OCR）、联网搜索
-- **多模型支持** — 用户可绑定自有 API Key，系统级模型兜底，运行时切换
-- **iCalendar 导入/订阅** — 导入兼容标准格式；订阅 Feed 可直接添加到 Apple Calendar / Google Calendar，支持日程/待办/提醒，完整 RRULE 直通
-- **双认证** — Session（网页端）+ Token（API 端），提供详细 API 文档接口
-- **附件系统** — 支持图片/文档上传，OCR 文字识别（Tesseract / EasyOCR）
-
----
+- **日历核心**：日程（支持 RRULE 递归规则）、待办、提醒的完整 CRUD
+- **协作**：事件分组（颜色标签）、分享组（多人共享日历）
+- **日历订阅**：iCalendar Feed (.ics) 兼容 Apple/Google/Outlook 日历
+- **OAuth 2.0 Provider**：作为认证中心，第三方应用可通过 OAuth Token 调用后端服务
+- **CalDAV**：完整 RFC 4791/5545 实现，支持 iOS/macOS/Thunderbird/DAVx5 原生同步
+- **MCP Server**：暴露日程管理工具给 Claude Desktop、Copilot 等 AI 客户端
 
 ## 技术栈
 
-| 层次 | 技术 |
+| 层级 | 技术 |
 |------|------|
-| **后端框架** | Django 5.1.8 + Django REST Framework |
-| **AI Agent** | LangGraph + LangChain (ChatOpenAI compatible) |
-| **WebSocket** | Django Channels + Daphne (ASGI) |
-| **数据库** | SQLite（默认）/ PostgreSQL / MySQL |
-| **LLM 多模型** | OpenAI / DeepSeek / Moonshot / MiniMax / Anthropic |
-| **联网搜索** | Tavily |
-| **MCP 工具** | langchain-mcp-adapters |
-| **前端日历** | FullCalendar 6.x |
-| **前端 UI** | Bootstrap 5 + 原生 JS |
-| **加密存储** | AES-256-GCM（用户 API Key）|
-| **日志** | concurrent_log_handler（轮转日志）|
+| 框架 | FastAPI + Starlette |
+| ORM | SQLAlchemy 2.0 (async) |
+| 数据库 | SQLite (WAL 模式) |
+| 认证 | JWT + OAuth 2.0 (authorization_code / refresh_token) |
+| 密码 | bcrypt |
+| 递归规则 | python-dateutil (RRULE) |
+| iCalendar | icalendar |
+| MCP | mcp.server.fastmcp |
 
----
+## 快速开始
+
+```bash
+# 安装
+pip install -e .
+
+# 启动（API + CalDAV 合并运行，单端口）
+uvicorn app.main:app --reload --port 8000
+
+# 访问 API 文档
+open http://localhost:8000/docs
+```
 
 ## 项目结构
 
 ```
-UniSchedulerSuper/
- core/                          # 核心业务：日程、提醒、待办、群组协作
-    models.py                  # UserData / 群组模型 / DATA_SCHEMA 验证
-    views_events.py            # EventsRRuleManager（RRule 引擎集成）
-    views_reminder.py          # 提醒管理（含重复提醒）
-    views_share_groups.py      # 群组协作 + 版本同步
-    views_import_events.py     # iCalendar 导入
-    views_token.py             # API Token 管理
-    static/                    # CSS / JS（event-manager.js 等）
-    templates/                 # HTML 模板（FullCalendar 主页等）
-
- agent_service/                 # AI Agent 服务（LangGraph）
-    agent_graph.py             # Agent 图定义、工具注册、模型初始化
-    consumers.py               # WebSocket Consumer
-    tools/                     # Agent 工具集（日程操作、搜索等）
-    attachment_handler.py      # 附件处理（OCR、图片理解）
-    context_optimizer.py       # 上下文优化（Token 压缩）
-    context_summarizer.py      # 长对话摘要
-    quick_action_agent.py      # 快捷操作 Agent
-    mcp_tools.py               # MCP 工具集成
-    models.py                  # 对话记录 / 内存 / 事务模型
-
- config/                        # 配置管理
-    api_keys_manager.py        # API Key 读取（系统模型 + 第三方服务）
-    api_keys.json              # 实际配置（不入库，见 .gitignore）
-    api_keys.example.json      # 配置模板
-    email_manager.py           # 邮件服务配置
-    email.json                 # 邮件配置（不入库）
-    encryption.py              # AES-256-GCM 加密工具
-
- UniSchedulerSuper/             # Django 项目配置
-    settings.py
-    urls.py
-    asgi.py                    # ASGI 入口（Channels WebSocket）
-    wsgi.py
-
- api_examples/                  # API 调用示例代码
-    example_events_api.py
-    example_reminders_api.py
-    example_todos_api.py
-    example_eventgroups_api.py
-    README.md                  # API 完整文档
-
- docs/                          # 设计文档
- rrule_engine.py                # RRule 重复规则引擎
- integrated_reminder_manager.py # 集成提醒管理器
- logger.py                      # 日志配置
- requirements.txt
- manage.py
+├── app/
+│   ├── main.py              # FastAPI 入口，CalDAV 中间件
+│   ├── config.py            # 全局配置（密钥、过期时间等）
+│   ├── database.py          # SQLAlchemy async engine + session
+│   ├── dependencies.py      # 认证依赖注入（Bearer / OAuth Token）
+│   │
+│   ├── core/
+│   │   ├── security.py      # bcrypt 密码哈希、JWT 签发/校验
+│   │   ├── rrule_engine.py  # 递归规则引擎（RRuleSegment / RRuleSeries）
+│   │   └── reminder_manager.py  # 提醒递归生命周期管理
+│   │
+│   ├── models/
+│   │   ├── __init__.py      # User, UserData, EventGroup, ShareGroup 等
+│   │   └── oauth.py         # OAuthClient, OAuthToken, AuthorizationCode
+│   │
+│   ├── schemas/__init__.py  # 全部 Pydantic 请求/响应模型
+│   │
+│   ├── services/            # 业务逻辑层
+│   │   ├── event_service.py         # 日程 CRUD + RRule 生成
+│   │   ├── todo_service.py          # 待办 CRUD + 转日程
+│   │   ├── reminder_service.py      # 提醒 CRUD + 递归
+│   │   ├── group_service.py         # 事件分组管理
+│   │   ├── share_group_service.py   # 分享组管理
+│   │   ├── calendar_feed_service.py # iCalendar Feed 生成
+│   │   └── oauth_service.py         # OAuth 令牌管理
+│   │
+│   ├── api/                 # RESTful API 路由
+│   │   ├── auth.py          # 注册、登录、密码重置
+│   │   ├── events.py        # 日程 CRUD + 批量编辑
+│   │   ├── todos.py         # 待办 CRUD + 转日程
+│   │   ├── reminders.py     # 提醒 CRUD + 批量编辑
+│   │   ├── event_groups.py  # 事件分组管理
+│   │   ├── share_groups.py  # 分享组管理
+│   │   ├── calendar_feed.py # iCalendar 订阅
+│   │   └── oauth.py         # OAuth 授权/令牌端点
+│   │
+│   └── caldav/              # CalDAV 协议实现
+│       ├── xml_utils.py     # WebDAV XML 构建
+│       ├── ical_builder.py  # iCalendar 对象构建
+│       ├── ical_parser.py   # iCalendar 文本解析
+│       ├── etag.py          # ETag / CTag 计算
+│       └── router.py        # PROPFIND / REPORT / GET / PUT / DELETE
+│
+├── mcp_server.py            # MCP Server 独立进程
+├── pyproject.toml
+├── requirements.txt
+└── tests/
 ```
 
----
+## REST API
 
-## 快速开始
+### 认证
 
-### 环境要求
-
-- Python 3.12+
-- Windows 10/11 或 Linux
-
-### 安装
-
-```bash
-# 克隆项目
-git clone https://github.com/MoMoJee/UniSchedulerSuper.git
-cd UniSchedulerSuper
-
-# 创建虚拟环境
-python -m venv .venv
-
-# 激活（Windows PowerShell）
-.venv\Scripts\activate
-# 激活（Linux / macOS）
-source .venv/bin/activate
-
-# 安装依赖
-pip install -r requirements.txt
-```
-
-> **说明**：`easyocr` 体积约 1 GB，如不需要高精度 OCR 可跳过，系统会自动降级使用 Tesseract。
-
-### 配置
-
-#### 1. 邮件服务（可选）
-
-系统默认运行在**测试模式**，注册无需验证码，找回密码时验证码直接显示在页面上，无需邮件配置。如需真实邮件：
-
-```bash
-cp config/email.example.json config/email.json
-# 编辑 email.json，填入 SMTP 配置
-```
-
-#### 2. AI Agent 模型配置（可选）
-
-如需使用 AI 对话助手，配置系统模型：
-
-```bash
-cp config/api_keys.example.json config/api_keys.json
-# 编辑 api_keys.json，在 system_models 字段中填入模型信息
-```
-
-`system_models` 配置示例：
-
-```json
-{
-  "system_models": {
-    "system_deepseek": {
-      "model_name": "deepseek-chat",
-      "base_url": "https://api.deepseek.com/v1",
-      "api_key": "sk-...",
-      "enabled": true
-    }
-  }
-}
-```
-
-> 支持任何 OpenAI Compatible 接口。用户也可以在账户设置中绑定自己的 API Key，优先于系统模型。未配置任何模型时项目仍可正常启动，仅 AI 对话功能不可用。
-
-如果要使用更多丰富的功能，可以参照 config/api_keys.example.json 配置其他服务，如百度云 OCR 和文档解析，以及更多 MCP 服务等
-
-### 初始化数据库
-
-```bash
-python manage.py migrate
-python manage.py createsuperuser
-```
-
-### 启动服务
-
-**开发模式**（不支持 WebSocket）：
-
-```bash
-python manage.py runserver
-```
-
-**推荐：Daphne ASGI**（支持 WebSocket 与 AI Agent 实时对话）：
-
-```bash
-# 收集静态文件（首次运行）
-python manage.py collectstatic --noinput
-
-# 启动
-daphne -b 0.0.0.0 -p 8080 UniSchedulerSuper.asgi:application
-```
-
-### 访问
-
-| 地址 | 说明 |
-|------|------|
-| `http://127.0.0.1:8000/` | Web 主界面 |
-| `http://127.0.0.1:8000/admin/` | Django 管理后台 |
-| `http://127.0.0.1:8000/agent/` | AI Agent 对话界面 |
-
----
-
-## API 使用
-
-系统提供完整的 RESTful API，支持 Token 认证。
-
-### 获取 Token
-
-```python
-import requests
-
-res = requests.post("http://127.0.0.1:8000/api/auth/login/", json={
-    "username": "your_username",
-    "password": "your_password"
-})
-token = res.json()["token"]
-```
-
-或通过 Web 界面 设置-我的-API Token 管理获取 token
-
-### 主要端点
-
-| 模块 | 端点前缀 |
-|------|----------|
-| 日程 | `/get_calendar/events/`（读取），`/events/`（创建），`/get_calendar/`（更新/删除/批量编辑） |
-| 提醒 | `/api/reminders/` |
-| 待办 | `/api/todos/` |
-| 日程组 | `/get_calendar/`（CRUD），`/api/events/groups/`（轻量列表接口） |
-| 群组协作 | `/api/share-groups/` |
-| Token 管理 | `/api/token/` |
-
-完整 API 文档与可运行示例：[api_examples/README.md](api_examples/README.md)
-
----
-
-## 日历订阅
-
-提供符合 RFC 5545 标准的只读 iCalendar Feed，可直接添加到 Apple Calendar、Google Calendar 等客户端。
-
-**订阅地址**：
-```
-https://yourserver.com/api/calendar/feed/?token=<YOUR_TOKEN>&type=all
-```
-
-| 参数 | 默认 | 说明 |
+| 方法 | 路径 | 说明 |
 |------|------|------|
-| `token` | 必填 | 用户 API Token（URL 参数鉴权，Apple Calendar 不支持自定义 Header）|
-| `type` | `all` | `all` / `events` / `todos` / `reminders` |
+| POST | `/api/auth/register` | 注册账号 |
+| POST | `/api/auth/login` | 登录获取 JWT |
+| GET | `/api/auth/me` | 当前用户信息 |
+| POST | `/api/auth/change-password` | 修改密码 |
+| POST | `/api/auth/change-username` | 修改用户名 |
+| POST | `/api/auth/password-reset/request` | 请求重置密码 |
+| POST | `/api/auth/password-reset/verify` | 验证并重置密码 |
+| POST | `/api/auth/email/verify-request` | 请求邮箱验证 |
+| POST | `/api/auth/email/verify` | 验证邮箱 |
 
-**数据映射**：
+### 日程
 
-| 项目类型 | iCalendar 组件 | 说明 |
-|---------|--------------|------|
-| 日程 | `VEVENT` | 完整映射，RRULE 直通，含 STATUS / PRIORITY |
-| 待办 | `VEVENT` + `VALARM` | 仅含 due_date 的待办，标题前缀 `[待办]`|
-| 提醒 | `VEVENT` + `VALARM` | 标题前缀 `[提醒]`，RRULE 直通 |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/events/` | 获取所有日程 |
+| POST | `/api/events/` | 创建日程（支持 RRULE） |
+| GET | `/api/events/{id}` | 获取单个日程 |
+| PUT | `/api/events/{id}` | 更新日程 |
+| DELETE | `/api/events/{id}` | 删除日程（?delete_scope=single\|all\|future） |
+| POST | `/api/events/bulk-edit` | 批量编辑（支持 single/all/future 范围） |
 
-> **注意**：Apple Calendar 的 HTTP 订阅只解析 VEVENT，忽略 VTODO，因此待办和提醒均转为带 VALARM 的 VEVENT。iOS 14+ 要求 HTTPS，使用 HTTP 会触发安全警告（已测试在IOS18，IOS26下不影响使用）。
+### 待办
 
-**Apple Calendar 添加步骤**：「设置 → 日历 → 账户 → 添加账户 → 其他 → 添加已订阅的日历」，输入上述 URL 即可。账号密码无需填写
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/todos/` | 获取所有待办（?status=pending 筛选） |
+| POST | `/api/todos/` | 创建待办 |
+| GET | `/api/todos/{id}` | 获取单个待办 |
+| PUT | `/api/todos/{id}` | 更新待办 |
+| DELETE | `/api/todos/{id}` | 删除待办 |
+| POST | `/api/todos/convert` | 将待办转换为日程 |
 
----
+### 提醒
 
-## AI Agent
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/reminders/` | 获取所有提醒 |
+| POST | `/api/reminders/` | 创建提醒（支持 RRULE） |
+| GET | `/api/reminders/{id}` | 获取单个提醒 |
+| PUT | `/api/reminders/{id}` | 更新提醒 |
+| DELETE | `/api/reminders/{id}` | 删除提醒 |
+| POST | `/api/reminders/update-status` | 更新状态（snooze/dismiss/complete） |
+| POST | `/api/reminders/bulk-edit` | 批量编辑 |
 
-Agent 基于 LangGraph 实现，通过 WebSocket 提供实时流式对话。
+### 事件分组
 
-**内置工具**：
-- 日程/提醒/待办的增删改查
-- 联网搜索（Tavily）
-- 附件理解（OCR + 图片分析）
-- MCP 工具（可扩展）
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/event-groups/` | 获取所有分组 |
+| POST | `/api/event-groups/` | 创建分组 |
+| PUT | `/api/event-groups/{id}` | 更新分组 |
+| DELETE | `/api/event-groups/{id}` | 删除分组 |
+| POST | `/api/event-groups/bulk-delete` | 批量删除 |
 
-**模型选择优先级**：用户自有 Key > 系统配置模型 > `DisabledLLM`（降级占位，返回提示信息）
+### 分享组
 
-**上下文管理**：自动压缩长对话，超出窗口时触发摘要，保持上下文连贯。
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/share-groups/` | 创建分享组 |
+| GET | `/api/share-groups/` | 获取我的分享组 |
+| POST | `/api/share-groups/join` | 通过邀请码加入 |
+| POST | `/api/share-groups/{id}/leave` | 退出分享组 |
+| GET | `/api/share-groups/{id}/members` | 获取成员列表 |
+| PUT | `/api/share-groups/{id}/members` | 修改成员角色/颜色 |
+| GET | `/api/share-groups/{id}/events` | 获取分享组日程 |
 
----
+### 日历订阅
 
-## MCP 服务器
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/api/calendar/feed?token=xxx` | iCalendar Feed（Apple 日历订阅） |
 
-`mcp_server.py` 将日程管理工具暴露为标准 MCP 服务，可接入 Claude Desktop、VS Code Copilot 等支持 MCP 协议的客户端。
+### OAuth 2.0 Provider
 
-### stdio 模式（Claude Desktop 本地）
+| 方法 | 路径 | RFC | 说明 |
+|------|------|-----|------|
+| GET | `/api/oauth/authorize` | 6749 | 授权端点（支持 PKCE S256） |
+| POST | `/api/oauth/token` | 6749 | 令牌端点（authorization_code / refresh_token） |
+| POST | `/api/oauth/introspect` | 7662 | 令牌内省 |
+| POST | `/api/oauth/revoke` | 7009 | 令牌吊销 |
+| GET | `/api/oauth/userinfo` | OIDC | 用户信息 |
+| POST | `/api/oauth/clients` | — | 注册 OAuth 客户端 |
+| GET | `/api/oauth/clients` | — | 列出注册的客户端 |
+| DELETE | `/api/oauth/clients/{id}` | — | 删除客户端 |
 
-> **前提**：需先完整部署本项目（数据库初始化、服务启动），MCP Server 本质上是本项目的一个进程，须能访问 Django ORM 和数据库。
+#### OAuth Scopes
 
-**推荐方式（命令行参数）**：
-```bash
-python mcp_server.py --token <YOUR_API_TOKEN>
+| Scope | 说明 |
+|-------|------|
+| `read:events` | 读取日程 |
+| `write:events` | 创建/修改/删除日程 |
+| `read:todos` | 读取待办 |
+| `write:todos` | 创建/修改/删除待办 |
+| `read:reminders` | 读取提醒 |
+| `write:reminders` | 创建/修改/删除提醒 |
+| `read:groups` | 读取分组和分享组 |
+| `write:groups` | 管理分组和分享组 |
+| `read:calendar` | 访问日历订阅源 |
+| `offline_access` | 发放 refresh_token |
+
+#### OAuth 使用流程
+
+```
+# 1. 用户注册 OAuth 客户端
+POST /api/oauth/clients
+{
+  "client_name": "My App",
+  "redirect_uris": ["https://myapp.example.com/callback"],
+  "default_scopes": ["read:events", "read:todos"]
+}
+→ { "client_id": "...", "client_secret": "..." }
+
+# 2. 引导用户授权（浏览器跳转）
+GET /api/oauth/authorize
+  ?response_type=code
+  &client_id={client_id}
+  &redirect_uri=https://myapp.example.com/callback
+  &scope=read:events%20read:todos
+  &state=random_state
+
+# 3. 用户授权后，回调返回 code
+→ https://myapp.example.com/callback?code=AUTH_CODE&state=...
+
+# 4. 用 code 换取 access_token
+POST /api/oauth/token
+  grant_type=authorization_code
+  &code=AUTH_CODE
+  &redirect_uri=https://myapp.example.com/callback
+  &client_id={client_id}
+  &client_secret={client_secret}
+→ { "access_token": "...", "refresh_token": "...", "token_type": "Bearer", "expires_in": 1800 }
+
+# 5. 调用 API
+GET /api/events/
+Authorization: Bearer {access_token}
+
+# 6. 刷新令牌
+POST /api/oauth/token
+  grant_type=refresh_token
+  &refresh_token={refresh_token}
+  &client_id={client_id}
+  &client_secret={client_secret}
 ```
 
-**备选方式（环境变量）**：
-```bash
-set MCP_USER_TOKEN=<YOUR_API_TOKEN>
-python mcp_server.py
+## CalDAV
+
+CalDAV 支持通过标准协议同步日历，兼容以下客户端：
+
+- iOS / macOS 原生日历
+- Thunderbird + Lightning
+- DAVx5（Android）
+- Evolution（Linux）
+
+### CalDAV 端点
+
+| 路径 | 方法 | 说明 |
+|------|------|------|
+| `/.well-known/caldav` | PROPFIND | 服务发现 |
+| `/caldav/` | PROPFIND | 服务根（current-user-principal） |
+| `/caldav/principals/{user}/` | PROPFIND | 用户主体（calendar-home-set） |
+| `/caldav/{user}/` | PROPFIND | 日历主目录（枚举所有日历集合） |
+| `/caldav/{user}/{calendar}/` | PROPFIND | 日历集合属性 + 枚举事件 |
+| `/caldav/{user}/{calendar}/` | REPORT | calendar-query / calendar-multiget |
+| `/caldav/{user}/{calendar}/{uid}.ics` | GET | 获取单个事件 iCalendar |
+| `/caldav/{user}/{calendar}/{uid}.ics` | PUT | 创建/更新事件（含 iOS "仅此" 编辑） |
+| `/caldav/{user}/{calendar}/{uid}.ics` | DELETE | 删除事件（重复系列全部删除） |
+
+### 认证方式
+
+CalDAV 支持三种认证：
+1. **HTTP Basic Auth**：用户名 + JWT Token 作为密码（推荐）
+2. **HTTP Basic Auth**：用户名 + 明文密码
+3. **Bearer Token**：`Authorization: Bearer <JWT>`
+
+### iOS/macOS 配置
+
+```
+服务器: https://your-server.com
+用户名: your-username
+密码:   your-jwt-access-token  (从 /api/auth/login 获取)
 ```
 
-或在 Claude Desktop 中配置：（`claude_desktop_config.json`）：
+### 日历映射
+
+每个 CalDAV 日历集合对应一组事件：
+
+| Calendar ID | 内容 |
+|-------------|------|
+| `default` | 未分组的日程 |
+| `{group-uuid}` | 对应事件分组下的日程 |
+| `reminders` | 提醒（转为 VEVENT + VALARM，只读） |
+
+## MCP Server
+
+MCP Server 将日程管理工具暴露给 AI 客户端（Claude Desktop、Copilot 等）。
+
+### 启动
+
+```bash
+# stdio 模式（Claude Desktop 本地）
+python mcp_server.py --token <JWT_TOKEN>
+
+# HTTP 模式（远程客户端）
+python mcp_server.py --http --port 8100 --token <JWT_TOKEN>
+
+# HTTP 模式（无认证，仅开发）
+MCP_USER_TOKEN=<JWT_TOKEN> python mcp_server.py --http --port 8100 --no-auth
+```
+
+### 提供的工具
+
+| 工具 | 说明 |
+|------|------|
+| `search_items` | 搜索日程/待办/提醒 |
+| `create_item` | 创建日程/待办/提醒 |
+| `update_item` | 更新日程/待办/提醒 |
+| `delete_item` | 删除日程/待办/提醒 |
+| `complete_todo` | 标记待办为完成 |
+| `get_event_groups` | 获取事件分组列表 |
+| `get_share_groups` | 获取分享组列表 |
+| `check_schedule_conflicts` | 检查日程冲突 |
+
+### Claude Desktop 配置
+
+`~/.config/claude/claude_desktop_config.json`:
+
 ```json
 {
   "mcpServers": {
-    "unischeduler": {
-      "command": "python",  // 要使用部署了该项目的环境的 python 解释器
-      "args": ["D:/PROJECTS/UniSchedulerSuper/mcp_server.py", "--token", "YOUR_TOKEN"]
+    "unicalendar": {
+      "command": "python",
+      "args": ["/path/to/UniCalendar/mcp_server.py", "--token", "<YOUR_JWT_TOKEN>"]
     }
   }
 }
 ```
 
-### HTTP 模式（远程客户端 / VS Code）
+## 运行测试
 
-对于服务端：
 ```bash
-python mcp_server.py --http --port 8100
+pip install -e ".[dev]"
+python -m pytest tests/ -v
 ```
 
-如果仅体验功能不部署，那么仅使用客户端即可：
-客户端使用 `http://yourserver:8100/mcp?api_key=<YOUR_TOKEN>` 连接，支持 URL 参数（`api_key=` / `token=`）和 `Authorization: Bearer` Header 两种鉴权方式。
+## 环境变量
 
-VS Code `settings.json` 配置示例：
-```json
-{
-  "mcp": {
-    "servers": {
-      "unischeduler": {
-        "url": "http://127.0.0.1:8100/mcp?api_key=YOUR_TOKEN",
-        // "url": "http://unischedulersuper.online:8100/mcp?api_key=YOUR_TOKEN", 适用于使用我们官方服务器的场景
-        "type": "http"
-      }
-    }
-  }
-}
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `SECRET_KEY` | `change-me...` | JWT 签名密钥 |
+| `DATABASE_URL` | `sqlite+aiosqlite:///./uni_calendar.db` | 数据库 URL |
+| `DEBUG` | `false` | 调试模式 |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `30` | JWT 过期时间（分钟） |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `30` | 刷新令牌过期（天） |
+| `AUTH_CODE_EXPIRE_MINUTES` | `10` | OAuth 授权码过期（分钟） |
+| `OAUTH_ISSUER` | `https://localhost:8000` | JWT issuer |
+| `MCP_USER_TOKEN` | — | MCP Server 认证 Token |
+
+## 架构设计
+
+```
+┌────────────────────────────────────────────────────────────┐
+│  HTTP Clients                                               │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  │
+│  │CalDAV App│  │REST App  │  │OAuth App │  │MCP Client│  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘  │
+└───────┼──────────────┼──────────────┼──────────────┼───────┘
+        │              │              │              │
+   ┌────▼──────────────▼──────────────▼──────────────▼───────┐
+   │                   FastAPI (Single Port)                  │
+   │  ┌───────────────────────────────────────────────────┐  │
+   │  │ CalDAV Middleware (PROPFIND/REPORT/GET/PUT/DELETE) │  │
+   │  └───────────────────────────────────────────────────┘  │
+   │  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────────┐  │
+   │  │Auth API │ │REST API │ │OAuth API│ │Calendar Feed│  │
+   │  └────┬────┘ └────┬────┘ └────┬────┘ └──────┬──────┘  │
+   └───────┼───────────┼───────────┼──────────────┼─────────┘
+           │           │           │              │
+   ┌───────▼───────────▼───────────▼──────────────▼─────────┐
+   │                  Service Layer                           │
+   │  event_service / todo_service / reminder_service         │
+   │  group_service / share_group_service / oauth_service     │
+   └───────────────────────┬─────────────────────────────────┘
+                           │
+   ┌───────────────────────▼─────────────────────────────────┐
+   │              Data Layer (SQLAlchemy)                      │
+   │  User / UserData / EventGroup / ShareGroup / OAuth*      │
+   └───────────────────────┬─────────────────────────────────┘
+                           │
+   ┌───────────────────────▼─────────────────────────────────┐
+   │                  SQLite (WAL Mode)                        │
+   └─────────────────────────────────────────────────────────┘
 ```
 
-**暴露的工具**：`search_items` / `create_item` / `update_item` / `delete_item` / `complete_todo` / `get_event_groups` / `get_share_groups` / `check_schedule_conflicts`
+## License
 
----
-
-## 许可证
-
-[MIT License](LICENSE)
+MIT
